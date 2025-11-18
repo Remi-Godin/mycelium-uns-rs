@@ -1,0 +1,7 @@
+[package]
+name = "mycelium-uns-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rust_iso3166 = "0.1.4"
