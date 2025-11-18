@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 rust_iso3166 = "0.1.4"
+serde = { version = "1.0.228", features = ["derive"] }

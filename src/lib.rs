@@ -2,14 +2,39 @@
 use std::fmt::Display;
 
 use rust_iso3166::{iso3166_2::ET_SN, *};
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct MyceliumSubject {
-    environment: Environment,
-    ownership_group: OwnershipGroup,
-    geo_locator: GeoLocator,
-    service_identifier: ServiceIdentifier,
-    payload_type: PayloadType,
-    payload_identifier: Vec<String>,
+    pub environment: Environment,
+    pub ownership_group: OwnershipGroup,
+    pub geo_locator: GeoLocator,
+    pub service_identifier: ServiceIdentifier,
+    pub payload_type: PayloadType,
+    pub payload_identifier: Vec<String>,
+}
+
+impl MyceliumSubject {
+    pub fn get_subject_string(&self) -> String {
+        self.to_string()
+    }
+
+    pub fn get_subject_tokens(&self) -> Vec<String> {
+        let mut tokens = Vec::new();
+        tokens.push(self.environment.to_string());
+        tokens.push(self.ownership_group.enterprise.clone());
+        tokens.push(self.ownership_group.op_group.clone());
+        tokens.append(&mut self.geo_locator.get_tokens());
+        tokens.push(self.service_identifier.service_name.clone());
+        tokens.push(self.service_identifier.instance_id.clone());
+        tokens.append(&mut self.payload_type.get_tokens());
+        tokens.append(&mut self.payload_identifier.clone());
+        tokens
+    }
+
+    pub fn validate_subject(&self) -> bool {
+        self.get_subject_tokens().iter().any(|i| i.contains("."))
+    }
 }
 
 impl Display for MyceliumSubject {
@@ -29,14 +54,15 @@ impl Display for MyceliumSubject {
 
 #[derive(Default)]
 pub struct MyceliumSubjectBuilder {
-    environment: Option<Environment>,
-    ownership_group: Option<OwnershipGroup>,
-    geo_locator: Option<GeoLocator>,
-    service_identifier: Option<ServiceIdentifier>,
-    payload_type: Option<PayloadType>,
-    payload_identifier: Option<Vec<String>>,
+    pub environment: Option<Environment>,
+    pub ownership_group: Option<OwnershipGroup>,
+    pub geo_locator: Option<GeoLocator>,
+    pub service_identifier: Option<ServiceIdentifier>,
+    pub payload_type: Option<PayloadType>,
+    pub payload_identifier: Option<Vec<String>>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum Environment {
     Production,
     Staging,
@@ -53,6 +79,7 @@ impl Display for Environment {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct OwnershipGroup {
     enterprise: String,
     op_group: String,
@@ -67,11 +94,26 @@ impl OwnershipGroup {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum GeoLocator {
     Local,
     Global(GlobalLocator),
 }
 
+impl GeoLocator {
+    pub fn get_tokens(&self) -> Vec<String> {
+        match self {
+            GeoLocator::Local => vec!["local".to_string()],
+            GeoLocator::Global(g) => vec![
+                g.iso_3166_2.to_string(),
+                g.op_region.to_string(),
+                g.op_identifier.to_string(),
+            ],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct GlobalLocator {
     iso_3166_2: String,
     op_region: String,
@@ -103,6 +145,7 @@ impl Display for GeoLocator {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ServiceIdentifier {
     service_name: String,
     instance_id: String,
@@ -117,6 +160,7 @@ impl ServiceIdentifier {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum PayloadType {
     Heartbeat,
     Data,
@@ -124,6 +168,19 @@ pub enum PayloadType {
     Command,
     Event,
     Custom,
+}
+
+impl PayloadType {
+    pub fn get_tokens(&self) -> Vec<String> {
+        match self {
+            Self::Heartbeat => vec!["heartbeat".to_string()],
+            Self::Data => vec!["data".to_string()],
+            Self::Diagnostics => vec!["diagnostics".to_string()],
+            Self::Event => vec!["event".to_string()],
+            Self::Command => vec!["command".to_string()],
+            Self::Custom => vec!["custom".to_string()],
+        }
+    }
 }
 
 impl Display for PayloadType {
