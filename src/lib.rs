@@ -60,13 +60,13 @@ impl FromStr for OwnershipGroup {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-pub struct GlobalLocator {
+pub struct Locator {
     iso_3166_2: String,
     op_region: String,
     op_identifier: String,
 }
 
-impl Display for GlobalLocator {
+impl Display for Locator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -76,7 +76,7 @@ impl Display for GlobalLocator {
     }
 }
 
-impl FromStr for GlobalLocator {
+impl FromStr for Locator {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('.').collect();
@@ -85,7 +85,7 @@ impl FromStr for GlobalLocator {
             if iso3166_2::from_code(iso3166_2_code).is_none() {
                 Err("Invalid ISO 3166-2 code")
             } else {
-                Ok(GlobalLocator {
+                Ok(Locator {
                     iso_3166_2: iso3166_2_code.to_string(),
                     op_region: parts[1].to_string(),
                     op_identifier: parts[2].to_string(),
@@ -100,14 +100,16 @@ impl FromStr for GlobalLocator {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum GeoLocator {
     Local,
-    Global(GlobalLocator),
+    Global,
+    Locator(Locator),
 }
 
 impl Display for GeoLocator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GeoLocator::Local => write!(f, "local"),
-            GeoLocator::Global(g) => write!(f, "{g}"),
+            GeoLocator::Global => write!(f, "global"),
+            GeoLocator::Locator(g) => write!(f, "{g}"),
         }
     }
 }
@@ -119,8 +121,8 @@ impl FromStr for GeoLocator {
         if parts.len() == 1 {
             Ok(Self::Local)
         } else {
-            Ok(Self::Global(
-                GlobalLocator::from_str(s).map_err(|_| "Invalid GlobalLocator string format.")?,
+            Ok(Self::Locator(
+                Locator::from_str(s).map_err(|_| "Invalid GlobalLocator string format.")?,
             ))
         }
     }
@@ -234,13 +236,15 @@ impl FromStr for MyceliumSubject {
         let mut global_offset = 0;
         if parts[3] == "local" {
             geo_locator = GeoLocator::Local;
+        } else if parts[3] == "global" {
+            geo_locator = GeoLocator::Global;
         } else {
             global_offset = 2;
             if parts.len() < 9 {
                 return Err("String too short to represent a global MyceliumSubject");
             }
             let global_locator_str = format!("{}.{}.{}", parts[3], parts[4], parts[5]);
-            geo_locator = GeoLocator::Global(GlobalLocator::from_str(&global_locator_str)?);
+            geo_locator = GeoLocator::Locator(Locator::from_str(&global_locator_str)?);
         }
         let service_identifier = ServiceIdentifier::from_str(&format!(
             "{}.{}",
@@ -271,7 +275,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn global_from_string_success() {
+    fn locator_from_string_success() {
         let subject_string =
             "prod.abc.xyz.US-CA.south.abc.plc-gateway.1.data.system.sub-system.sensor.value";
         let res = MyceliumSubject::from_str(subject_string).unwrap();
@@ -279,7 +283,7 @@ mod test {
     }
 
     #[test]
-    fn global_from_string_fail_bad_environment() {
+    fn locator_from_string_fail_bad_environment() {
         let subject_string =
             "production.abc.xyz.US-CA.south.abc.plc-gateway.1.data.system.sub-system.sensor.value";
         let res = MyceliumSubject::from_str(subject_string);
@@ -287,21 +291,21 @@ mod test {
     }
 
     #[test]
-    fn global_from_string_no_payload_id() {
+    fn locator_from_string_no_payload_id() {
         let subject_string = "prod.abc.xyz.US-CA.south.abc.plc-gateway.1.data";
         let res = MyceliumSubject::from_str(subject_string).unwrap();
         assert_eq!(subject_string, res.to_string());
     }
 
     #[test]
-    fn global_from_string_fail_no_payload_type() {
+    fn locator_from_string_fail_no_payload_type() {
         let subject_string = "prod.abc.xyz.US-CA.south.abc.plc-gateway.1";
         let res = MyceliumSubject::from_str(subject_string);
         assert!(res.is_err());
     }
 
     #[test]
-    fn global_from_string_fail_bad_iso_code() {
+    fn locator_from_string_fail_bad_iso_code() {
         let subject_string = "prod.abc.xyz.US-AA.south.abc.plc-gateway.1";
         let res = MyceliumSubject::from_str(subject_string);
         assert!(res.is_err());
@@ -339,6 +343,43 @@ mod test {
     #[test]
     fn local_from_string_fail_bad_payload_id() {
         let subject_string = "prod.abc.xyz.local.plc-gateway.1.datas";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn global_from_string_success() {
+        let subject_string =
+            "prod.abc.xyz.global.plc-gateway.1.data.system.sub-system.sensor.value";
+        let res = MyceliumSubject::from_str(subject_string).unwrap();
+        assert_eq!(subject_string, res.to_string());
+    }
+
+    #[test]
+    fn global_from_string_fail_bad_environment() {
+        let subject_string =
+            "production.abc.xyz.global.plc-gateway.1.data.system.sub-system.sensor.value";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn global_from_string_no_payload_id() {
+        let subject_string = "prod.abc.xyz.global.plc-gateway.1.data";
+        let res = MyceliumSubject::from_str(subject_string).unwrap();
+        assert_eq!(subject_string, res.to_string());
+    }
+
+    #[test]
+    fn global_from_string_fail_no_payload_type() {
+        let subject_string = "prod.abc.xyz.global.plc-gateway.1";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn global_from_string_fail_bad_payload_id() {
+        let subject_string = "prod.abc.xyz.global.plc-gateway.1.datas";
         let res = MyceliumSubject::from_str(subject_string);
         assert!(res.is_err());
     }
