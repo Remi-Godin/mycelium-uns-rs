@@ -1,68 +1,9 @@
 #![allow(unused)]
-use std::fmt::Display;
-
-use rust_iso3166::{iso3166_2::ET_SN, *};
+use rust_iso3166::iso3166_2;
 use serde::{Deserialize, Serialize};
+use std::{fmt::Display, str::FromStr};
 
-#[derive(Serialize, Deserialize)]
-pub struct MyceliumSubject {
-    pub environment: Environment,
-    pub ownership_group: OwnershipGroup,
-    pub geo_locator: GeoLocator,
-    pub service_identifier: ServiceIdentifier,
-    pub payload_type: PayloadType,
-    pub payload_identifier: Vec<String>,
-}
-
-impl MyceliumSubject {
-    pub fn get_subject_string(&self) -> String {
-        self.to_string()
-    }
-
-    pub fn get_subject_tokens(&self) -> Vec<String> {
-        let mut tokens = Vec::new();
-        tokens.push(self.environment.to_string());
-        tokens.push(self.ownership_group.enterprise.clone());
-        tokens.push(self.ownership_group.op_group.clone());
-        tokens.append(&mut self.geo_locator.get_tokens());
-        tokens.push(self.service_identifier.service_name.clone());
-        tokens.push(self.service_identifier.instance_id.clone());
-        tokens.append(&mut self.payload_type.get_tokens());
-        tokens.append(&mut self.payload_identifier.clone());
-        tokens
-    }
-
-    pub fn validate_subject(&self) -> bool {
-        self.get_subject_tokens().iter().any(|i| i.contains("."))
-    }
-}
-
-impl Display for MyceliumSubject {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut tokens = Vec::new();
-        tokens.push(self.environment.to_string());
-        tokens.push(self.ownership_group.enterprise.clone());
-        tokens.push(self.ownership_group.op_group.clone());
-        tokens.push(self.geo_locator.to_string());
-        tokens.push(self.service_identifier.service_name.clone());
-        tokens.push(self.service_identifier.instance_id.clone());
-        tokens.push(self.payload_type.to_string());
-        tokens.append(&mut self.payload_identifier.clone());
-        write!(f, "{}", tokens.join(".").to_string())
-    }
-}
-
-#[derive(Default)]
-pub struct MyceliumSubjectBuilder {
-    pub environment: Option<Environment>,
-    pub ownership_group: Option<OwnershipGroup>,
-    pub geo_locator: Option<GeoLocator>,
-    pub service_identifier: Option<ServiceIdentifier>,
-    pub payload_type: Option<PayloadType>,
-    pub payload_identifier: Option<Vec<String>>,
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub enum Environment {
     Production,
     Staging,
@@ -72,95 +13,147 @@ pub enum Environment {
 impl Display for Environment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            &Environment::Production => write!(f, "prod"),
-            &Environment::Staging => write!(f, "staging"),
-            &Environment::Dev => write!(f, "dev"),
+            Environment::Production => write!(f, "prod"),
+            Environment::Staging => write!(f, "staging"),
+            Environment::Dev => write!(f, "dev"),
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+impl FromStr for Environment {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "prod" => Ok(Environment::Production),
+            "staging" => Ok(Environment::Staging),
+            "dev" => Ok(Environment::Dev),
+            _ => Err("Invalid Environment string"),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct OwnershipGroup {
     enterprise: String,
     op_group: String,
 }
 
-impl OwnershipGroup {
-    pub fn new(enterprise: impl Into<String>, op_group: impl Into<String>) -> Self {
-        Self {
-            enterprise: enterprise.into(),
-            op_group: op_group.into(),
+impl Display for OwnershipGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.enterprise, self.op_group)
+    }
+}
+
+impl FromStr for OwnershipGroup {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() == 2 {
+            Ok(OwnershipGroup {
+                enterprise: parts[0].to_string(),
+                op_group: parts[1].to_string(),
+            })
+        } else {
+            Err("Invalid OwnershipGroup string format. Expected: enterprise.op_group")
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub enum GeoLocator {
-    Local,
-    Global(GlobalLocator),
-}
-
-impl GeoLocator {
-    pub fn get_tokens(&self) -> Vec<String> {
-        match self {
-            GeoLocator::Local => vec!["local".to_string()],
-            GeoLocator::Global(g) => vec![
-                g.iso_3166_2.to_string(),
-                g.op_region.to_string(),
-                g.op_identifier.to_string(),
-            ],
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct GlobalLocator {
     iso_3166_2: String,
     op_region: String,
     op_identifier: String,
 }
 
-impl GlobalLocator {
-    pub fn new(
-        iso_3166_2: impl Into<String>,
-        op_region: impl Into<String>,
-        op_identifier: impl Into<String>,
-    ) -> Self {
-        Self {
-            iso_3166_2: iso_3166_2.into(),
-            op_region: op_region.into(),
-            op_identifier: op_identifier.into(),
+impl Display for GlobalLocator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}.{}.{}",
+            self.iso_3166_2, self.op_region, self.op_identifier
+        )
+    }
+}
+
+impl FromStr for GlobalLocator {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() == 3 {
+            let iso3166_2_code = parts[0];
+            if iso3166_2::from_code(iso3166_2_code).is_none() {
+                Err("Invalid ISO 3166-2 code")
+            } else {
+                Ok(GlobalLocator {
+                    iso_3166_2: iso3166_2_code.to_string(),
+                    op_region: parts[1].to_string(),
+                    op_identifier: parts[2].to_string(),
+                })
+            }
+        } else {
+            Err("Invalid GlobalLocator string format. Expected: iso.region.id")
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum GeoLocator {
+    Local,
+    Global(GlobalLocator),
 }
 
 impl Display for GeoLocator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            &GeoLocator::Local => write!(f, "local"),
-            &GeoLocator::Global(ref g) => {
-                write!(f, "{}.{}.{}", g.iso_3166_2, g.op_region, g.op_identifier)
-            }
+            GeoLocator::Local => write!(f, "local"),
+            GeoLocator::Global(g) => write!(f, "{g}"),
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+impl FromStr for GeoLocator {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() == 1 {
+            Ok(Self::Local)
+        } else {
+            Ok(Self::Global(
+                GlobalLocator::from_str(s).map_err(|_| "Invalid GlobalLocator string format.")?,
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ServiceIdentifier {
     service_name: String,
     instance_id: String,
 }
 
-impl ServiceIdentifier {
-    pub fn new(service_name: impl Into<String>, instance_id: impl Into<String>) -> Self {
-        Self {
-            service_name: service_name.into(),
-            instance_id: instance_id.into(),
+impl Display for ServiceIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.service_name, self.instance_id)
+    }
+}
+
+impl FromStr for ServiceIdentifier {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() == 2 {
+            Ok(ServiceIdentifier {
+                service_name: parts[0].to_string(),
+                instance_id: parts[1].to_string(),
+            })
+        } else {
+            Err("Invalid ServiceIdentifier string format. Expected: name.id")
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub enum PayloadType {
     Heartbeat,
     Data,
@@ -170,91 +163,106 @@ pub enum PayloadType {
     Custom,
 }
 
-impl PayloadType {
-    pub fn get_tokens(&self) -> Vec<String> {
-        match self {
-            Self::Heartbeat => vec!["heartbeat".to_string()],
-            Self::Data => vec!["data".to_string()],
-            Self::Diagnostics => vec!["diagnostics".to_string()],
-            Self::Event => vec!["event".to_string()],
-            Self::Command => vec!["command".to_string()],
-            Self::Custom => vec!["custom".to_string()],
-        }
-    }
-}
-
 impl Display for PayloadType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            &PayloadType::Heartbeat => write!(f, "heartbeat"),
-            &PayloadType::Data => write!(f, "data"),
-            &PayloadType::Diagnostics => write!(f, "diagnostics"),
-            &PayloadType::Event => write!(f, "event"),
-            &PayloadType::Command => write!(f, "command"),
-            &PayloadType::Custom => write!(f, "custom"),
+            PayloadType::Heartbeat => write!(f, "heartbeat"),
+            PayloadType::Data => write!(f, "data"),
+            PayloadType::Diagnostics => write!(f, "diagnostics"),
+            PayloadType::Command => write!(f, "command"),
+            PayloadType::Event => write!(f, "event"),
+            PayloadType::Custom => write!(f, "custom"),
         }
     }
 }
 
-impl MyceliumSubjectBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn environment(mut self, environment: Environment) -> Self {
-        self.environment = Some(environment);
-        self
-    }
-
-    pub fn ownership_group(mut self, ownership_group: OwnershipGroup) -> Self {
-        self.ownership_group = Some(ownership_group);
-        self
-    }
-
-    pub fn geo_locator(mut self, geo_locator: GeoLocator) -> Self {
-        self.geo_locator = Some(geo_locator);
-        self
-    }
-
-    pub fn service_identifier(mut self, service_identifier: ServiceIdentifier) -> Self {
-        self.service_identifier = Some(service_identifier);
-        self
-    }
-
-    pub fn payload_type(mut self, payload_type: PayloadType) -> Self {
-        self.payload_type = Some(payload_type);
-        self
-    }
-
-    pub fn payload_identifier(mut self, payload_identifier: Vec<String>) -> Self {
-        self.payload_identifier = Some(payload_identifier);
-        self
-    }
-
-    pub fn build(self) -> Result<MyceliumSubject, String> {
-        if let Some(environment) = self.environment
-            && let Some(ownership_group) = self.ownership_group
-            && let Some(geo_locator) = self.geo_locator
-            && let Some(service_identifier) = self.service_identifier
-            && let Some(payload_type) = self.payload_type
-            && let Some(payload_identifier) = self.payload_identifier
-        {
-            if let GeoLocator::Global(ref locator) = geo_locator {
-                if iso3166_2::from_code(&locator.iso_3166_2).is_none() {
-                    return Err("Invalid ISO-3166 code".to_string());
-                }
-            }
-            Ok(MyceliumSubject {
-                environment,
-                ownership_group,
-                geo_locator,
-                service_identifier,
-                payload_type,
-                payload_identifier,
-            })
-        } else {
-            Err("Missing fields".into())
+impl FromStr for PayloadType {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "heartbeat" => Ok(PayloadType::Heartbeat),
+            "data" => Ok(PayloadType::Data),
+            "diagnostics" => Ok(PayloadType::Diagnostics),
+            "command" => Ok(PayloadType::Command),
+            "event" => Ok(PayloadType::Event),
+            "custom" => Ok(PayloadType::Custom),
+            _ => Err("Invalid PayloadType string"),
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct MyceliumSubject {
+    pub environment: Environment,
+    pub ownership_group: OwnershipGroup,
+    pub geo_locator: GeoLocator,
+    pub service_identifier: ServiceIdentifier,
+    pub payload_type: PayloadType,
+    pub payload_identifier: Vec<String>,
+}
+
+impl Display for MyceliumSubject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}.{}.{}.{}.{}",
+            self.environment,
+            self.ownership_group,
+            self.geo_locator,
+            self.service_identifier,
+            self.payload_type
+        )?;
+
+        for part in &self.payload_identifier {
+            write!(f, ".{}", part)?;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for MyceliumSubject {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() < 7 {
+            return Err("String too short to represent a local or global MyceliumSubject");
+        }
+        let environment = Environment::from_str(parts[0])?;
+        let ownership_group = OwnershipGroup::from_str(&format!("{}.{}", parts[1], parts[2]))?;
+
+        let geo_locator;
+        let mut global_offset = 0;
+        if parts[3] == "local" {
+            geo_locator = GeoLocator::Local;
+        } else {
+            global_offset = 2;
+            if parts.len() < 9 {
+                return Err("String too short to represent a global MyceliumSubject");
+            }
+            let global_locator_str = format!("{}.{}.{}", parts[3], parts[4], parts[5]);
+            geo_locator = GeoLocator::Global(GlobalLocator::from_str(&global_locator_str)?);
+        }
+        let service_identifier = ServiceIdentifier::from_str(&format!(
+            "{}.{}",
+            parts[4 + global_offset],
+            parts[5 + global_offset]
+        ))?;
+
+        let payload_type = PayloadType::from_str(parts[6 + global_offset])?;
+
+        let payload_identifier: Vec<String> = parts[(7 + global_offset)..]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        Ok(MyceliumSubject {
+            environment,
+            ownership_group,
+            geo_locator,
+            service_identifier,
+            payload_type,
+            payload_identifier,
+        })
     }
 }
 
@@ -263,49 +271,75 @@ mod test {
     use super::*;
 
     #[test]
-    fn local() {
-        let subject = MyceliumSubjectBuilder::new()
-            .environment(Environment::Production)
-            .ownership_group(OwnershipGroup::new("abc", "xyz"))
-            .geo_locator(GeoLocator::Local)
-            .service_identifier(ServiceIdentifier::new("plc-gateway", "1"))
-            .payload_type(PayloadType::Data)
-            .payload_identifier(vec![
-                "system".to_string(),
-                "sub-system".to_string(),
-                "device".to_string(),
-                "value".to_string(),
-            ])
-            .build()
-            .unwrap();
-
-        assert_eq!(
-            subject.to_string(),
-            "prod.abc.xyz.local.plc-gateway.1.data.system.sub-system.device.value"
-        );
+    fn global_from_string_success() {
+        let subject_string =
+            "prod.abc.xyz.US-CA.south.abc.plc-gateway.1.data.system.sub-system.sensor.value";
+        let res = MyceliumSubject::from_str(subject_string).unwrap();
+        assert_eq!(subject_string, res.to_string());
     }
 
     #[test]
-    fn global() {
-        let subject = MyceliumSubjectBuilder::new()
-            .environment(Environment::Production)
-            .ownership_group(OwnershipGroup::new("abc", "xyz"))
-            .geo_locator(GeoLocator::Global(GlobalLocator::new(
-                "US-CA", "south", "cmb",
-            )))
-            .service_identifier(ServiceIdentifier::new("plc-gateway", "1"))
-            .payload_type(PayloadType::Data)
-            .payload_identifier(vec![
-                "system".to_string(),
-                "sub-system".to_string(),
-                "device".to_string(),
-                "value".to_string(),
-            ])
-            .build()
-            .unwrap();
-        assert_eq!(
-            subject.to_string(),
-            "prod.abc.xyz.US-CA.south.cmb.plc-gateway.1.data.system.sub-system.device.value"
-        );
+    fn global_from_string_fail_bad_environment() {
+        let subject_string =
+            "production.abc.xyz.US-CA.south.abc.plc-gateway.1.data.system.sub-system.sensor.value";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn global_from_string_no_payload_id() {
+        let subject_string = "prod.abc.xyz.US-CA.south.abc.plc-gateway.1.data";
+        let res = MyceliumSubject::from_str(subject_string).unwrap();
+        assert_eq!(subject_string, res.to_string());
+    }
+
+    #[test]
+    fn global_from_string_fail_no_payload_type() {
+        let subject_string = "prod.abc.xyz.US-CA.south.abc.plc-gateway.1";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn global_from_string_fail_bad_iso_code() {
+        let subject_string = "prod.abc.xyz.US-AA.south.abc.plc-gateway.1";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn local_from_string_success() {
+        let subject_string = "prod.abc.xyz.local.plc-gateway.1.data.system.sub-system.sensor.value";
+        let res = MyceliumSubject::from_str(subject_string).unwrap();
+        assert_eq!(subject_string, res.to_string());
+    }
+
+    #[test]
+    fn local_from_string_fail_bad_environment() {
+        let subject_string =
+            "production.abc.xyz.local.plc-gateway.1.data.system.sub-system.sensor.value";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn local_from_string_no_payload_id() {
+        let subject_string = "prod.abc.xyz.local.plc-gateway.1.data";
+        let res = MyceliumSubject::from_str(subject_string).unwrap();
+        assert_eq!(subject_string, res.to_string());
+    }
+
+    #[test]
+    fn local_from_string_fail_no_payload_type() {
+        let subject_string = "prod.abc.xyz.local.plc-gateway.1";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn local_from_string_fail_bad_payload_id() {
+        let subject_string = "prod.abc.xyz.local.plc-gateway.1.datas";
+        let res = MyceliumSubject::from_str(subject_string);
+        assert!(res.is_err());
     }
 }
